@@ -6,19 +6,19 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
+
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import org.analizadornoticias.modelo.Noticia;
 import org.springframework.stereotype.Service;
 
 @Service
-public class IA {
+public class GestorNoticiasIA {
     private static final String API_KEY = "AIzaSyDYQRHKHl1qAbXNPoax9rpGj_icr_yduJA";
     private static final String API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent";
-    private static final String PROMPTEMPAREJADOR="Eres un asistente que analiza noticias para detectar cuáles hablan sobre el mismo tema.  \n" +
+    private static final String PROMPT_COINCIDENCIAS="Eres un asistente que analiza noticias para detectar cuáles hablan sobre el mismo tema.  \n" +
             "Te daré una lista numerada de noticias.  \n" +
             "Tu tarea es devolver grupos de índices que correspondan a noticias que hablan sobre el mismo suceso o tema (por ejemplo: una dimisión, un accidente, una elección, etc.).\n" +
             "\n" +
@@ -30,28 +30,28 @@ public class IA {
             "\n" +
             "Ejemplo de formato de salida esperado:\n" +
             "```json\n" +
-            "[[0, 2, 5], [3, 7, 9], [10, 12]]";
+            "[[1, 2, 5], [3, 7, 9], [10, 12]]";
 
 
-    public ArrayList<ArrayList<Integer>> emparejador(ArrayList<Noticia> noticias){
-        ArrayList<ArrayList<Integer>> emparejadores = new ArrayList<>();
+    public List<List<Integer>> buscaCoincidencias(List<Noticia> noticias){
+        List<List<Integer>>coincidencias = new ArrayList<>();
         try {
-            emparejadores = analizarNoticias(noticias);
+            coincidencias = analizarNoticias(noticias);
         } catch (IOException e) {
             System.out.println("Error al analizar noticias");
         }
-        return emparejadores;
+        return coincidencias;
     }
-    public static ArrayList<ArrayList<Integer>> analizarNoticias(ArrayList<Noticia> noticias) throws IOException {
+    public static List<List<Integer>> analizarNoticias(List<Noticia> noticias) throws IOException {
         Gson gson = new Gson();
 
 
         // Construimos el el mensaje que enviamos a la IA
         StringBuilder sb = new StringBuilder();
-        sb.append(PROMPTEMPAREJADOR).append("\n\nNoticias:\n");
+        sb.append(PROMPT_COINCIDENCIAS).append("\n\nNoticias:\n");
 
         for (int i = 0; i < noticias.size(); i++) {
-            sb.append(i).append(". ").append(noticias.get(i).getTitular()).append("\n");
+            sb.append(noticias.get(i).getTitular()).append(". ").append(noticias.get(i).getTitular()).append("\n");
         }
 
         sb.append("\nDevuelve únicamente el JSON con los grupos de índices.");
@@ -79,9 +79,9 @@ public class IA {
         String jsonLimpio = textoRespuesta.substring(inicio, fin + 1).trim();
 
         // Parsear con Gson
-        ArrayList<ArrayList<Integer>> grupos = gson.fromJson(
+        List<List<Integer>> grupos = gson.fromJson(
                 jsonLimpio,
-                new TypeToken<ArrayList<ArrayList<Integer>>>(){}.getType()
+                new TypeToken<List<List<Integer>>>(){}.getType()
         );
 
         return grupos;

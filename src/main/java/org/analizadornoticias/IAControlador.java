@@ -1,18 +1,23 @@
 package org.analizadornoticias;
 import org.analizadornoticias.modelo.Noticia;
+import org.analizadornoticias.modelo.Resumen;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
+import java.util.List;
 
 @RestController
-@RequestMapping("/api/ia")
+@RequestMapping("/api")
 public class IAControlador {
     @Autowired
-    private IA iaService;
+    private GestorNoticiasIA gestorNoticias;
 
-    @PostMapping("/emparejar")
-    public ArrayList<ArrayList<Integer>> emparejarNoticias(@RequestBody ArrayList<Noticia> noticias) {
-        return iaService.emparejador(noticias);
+    @PostMapping("/resumenes-objetivos")
+    public List<Resumen> resumenesNoticias(@RequestBody ArrayList<Noticia> noticias) {
+        List<List<Integer>> coincidencias=gestorNoticias.buscaCoincidencias(noticias);
+        List<Resumen> resultado=gestorNoticias.realizarResumenes();
+        
+        return resultado;
     }
 }
