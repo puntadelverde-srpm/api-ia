@@ -9,9 +9,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import org.analizadornoticias.modelo.Noticia;
+import org.analizadornoticias.modelo.Resumen;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -30,7 +33,14 @@ public class GestorNoticiasIA {
             "\n" +
             "Ejemplo de formato de salida esperado:\n" +
             "```json\n" +
-            "[[1, 2, 5], [3, 7, 9], [10, 12]]";
+            "[[1, 2, 5], [3, 7, 9], [10, 12]]\n"+
+            "No puede haber una lista de solo un id";
+    private static final String PROMPT_RESUMENES =
+            "Analiza las siguientes noticias, que tratan sobre el mismo tema.\n" +
+                    "Crea un nuevo titular y un resumen objetivo y laico.\n" +
+                    "Devuelve la respuesta ÚNICAMENTE en formato JSON con la siguiente estructura exacta:\n" +
+                    "{ \"titular\": \"Nuevo titular\", \"cuerpo\": \"Resumen objetivo y laico.\" }\n" +
+                    "No incluyas texto fuera del JSON.\n\n";
 
 
     public List<List<Integer>> buscaCoincidencias(List<Noticia> noticias){
@@ -86,6 +96,61 @@ public class GestorNoticiasIA {
 
         return grupos;
 
+    }
+
+    public List<Resumen> resumidorNoticias(List<List<Integer>> coincidencias, List<Noticia> noticias) {
+        return resumirNoticias(coincidencias, noticias);
+    }
+
+    private List<Resumen> resumirNoticias(List<List<Integer>> coincidencias, List<Noticia> noticias) {
+        List<Resumen> resumenes = new ArrayList<>();
+        Gson gson = new Gson();
+        long contador = 1;
+        for(List<Integer> coincidencia: coincidencias){
+            System.err.println("Conincidencia");
+            coincidencia.stream().forEach(System.err::println);
+        }
+        for (List<Integer> grupo : coincidencias) {
+            StringBuilder prompt = new StringBuilder(PROMPT_RESUMENES);
+            prompt.append("Noticias:\n");
+
+            for (Integer idNoticia : grupo) {
+                if (idNoticia <= noticias.size()) {
+                    Noticia n = noticias.get(idNoticia - 1);
+                    prompt.append("Titular: ").append(n.getTitular()).append("\n");
+                    prompt.append("Cuerpo: ").append(n.getContenido()).append("\n\n");
+                }
+            }
+
+            try {
+                String respuesta = llamarGemini(prompt.toString());
+                System.out.println("Respuesta resumen: " + respuesta);
+
+                JsonObject root = JsonParser.parseString(respuesta).getAsJsonObject();
+                JsonArray candidates = root.getAsJsonArray("candidates");
+
+                if (candidates != null && candidates.size() > 0) {
+                    JsonObject content = candidates.get(0).getAsJsonObject().getAsJsonObject("content");
+                    JsonArray parts = content.getAsJsonArray("parts");
+                    String text = parts.get(0).getAsJsonObject().get("text").getAsString();
+
+                    // El texto contiene algo como:
+                    // ```json\n{ "titular": "x", "cuerpo": "y" }\n```
+                    // Así que limpiamos los backticks y saltos de línea extra
+                    String cleanJson = text.replaceAll("```json", "")
+                            .replaceAll("```", "")
+                            .trim();
+
+                    // Ahora parseamos el JSON limpio
+                    Resumen resumen = gson.fromJson(cleanJson, Resumen.class);
+                    resumen.setId(contador++);
+                    resumenes.add(resumen);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return resumenes;
     }
 
 

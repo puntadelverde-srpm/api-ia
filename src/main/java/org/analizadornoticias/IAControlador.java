@@ -16,7 +16,7 @@ public class IAControlador {
     @PostMapping("/resumenes-objetivos")
     public List<Resumen> resumenesNoticias(@RequestBody ArrayList<Noticia> noticias) {
         List<List<Integer>> coincidencias=gestorNoticias.buscaCoincidencias(noticias);
-        List<Resumen> resultado=gestorNoticias.realizarResumenes();
+        List<Resumen> resultado=gestorNoticias.resumidorNoticias(coincidencias,noticias);
         
         return resultado;
     }
