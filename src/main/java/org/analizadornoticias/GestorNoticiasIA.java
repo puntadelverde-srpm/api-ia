@@ -105,7 +105,6 @@ public class GestorNoticiasIA {
     private List<Resumen> resumirNoticias(List<List<Integer>> coincidencias, List<Noticia> noticias) {
         List<Resumen> resumenes = new ArrayList<>();
         Gson gson = new Gson();
-        long contador = 1;
         for(List<Integer> coincidencia: coincidencias){
             System.err.println("Conincidencia");
             coincidencia.stream().forEach(System.err::println);
@@ -143,7 +142,6 @@ public class GestorNoticiasIA {
 
                     // Ahora parseamos el JSON limpio
                     Resumen resumen = gson.fromJson(cleanJson, Resumen.class);
-                    resumen.setId(contador++);
                     resumenes.add(resumen);
                 }
             } catch (IOException e) {
