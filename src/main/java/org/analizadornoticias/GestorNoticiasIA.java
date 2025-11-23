@@ -17,11 +17,13 @@ import org.analizadornoticias.excepciones.AnalizadorNoticiasException;
 import org.analizadornoticias.excepciones.ResumidorNoticiasException;
 import org.analizadornoticias.modelo.Noticia;
 import org.analizadornoticias.modelo.Resumen;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
 public class GestorNoticiasIA {
-    private static final String API_KEY = "AIzaSyDYQRHKHl1qAbXNPoax9rpGj_icr_yduJA";
+    @Value("${gemini.api.key}")
+    private String apiKey;
     private static final String API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent";
     private static final String PROMPT_COINCIDENCIAS="Eres un asistente que analiza noticias para detectar cuáles hablan sobre el mismo tema.  \n" +
             "Te daré una lista numerada de noticias.  \n" +
@@ -50,11 +52,11 @@ public class GestorNoticiasIA {
         try {
             coincidencias = analizarNoticias(noticias);
         } catch (IOException e) {
-            throw new AnalizadorNoticiasException("Error al analizar noticias");
+            throw new AnalizadorNoticiasException("Error al analizar noticias" +e.getMessage());
         }
         return coincidencias;
     }
-    public static List<List<Integer>> analizarNoticias(List<Noticia> noticias) throws IOException {
+    public List<List<Integer>> analizarNoticias(List<Noticia> noticias) throws IOException {
         Gson gson = new Gson();
         String jsonLimpio;
         String respuesta;
@@ -62,20 +64,14 @@ public class GestorNoticiasIA {
         int fin;
 
         // Construimos el el mensaje que enviamos a la IA
-        StringBuilder sb = new StringBuilder();
-        sb.append(PROMPT_COINCIDENCIAS).append("\n\nNoticias:\n");
-
-        for (int i = 0; i < noticias.size(); i++) {
-            sb.append(noticias.get(i).getTitular()).append(". ").append(noticias.get(i).getTitular()).append("\n");
-        }
-
-        sb.append("\nDevuelve únicamente el JSON con los grupos de índices.");
+        StringBuilder response=realizarPromptNoticia(noticias);
 
 
-        respuesta = llamarGemini(sb.toString());
+        respuesta = llamarGemini(response.toString());
 
         // Extraemos el campo "text" del JSON que devuelve Gemini
         JsonObject jsonObject = gson.fromJson(respuesta, JsonObject.class);
+        System.out.println("Respuesta Gemini: " + respuesta);
         String textoRespuesta = jsonObject
                 .getAsJsonArray("candidates")
                 .get(0)
@@ -103,63 +99,83 @@ public class GestorNoticiasIA {
         return grupos;
     }
 
+    private static StringBuilder realizarPromptNoticia(List<Noticia> noticias) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(PROMPT_COINCIDENCIAS).append("\n\nNoticias:\n");
+
+        for (int i = 0; i < noticias.size(); i++) {
+            sb.append(noticias.get(i).getTitular()).append(". ").append(noticias.get(i).getTitular()).append("\n");
+        }
+
+        sb.append("\nDevuelve únicamente el JSON con los grupos de índices.");
+        return sb;
+    }
+
     public List<Resumen> resumidorNoticias(List<List<Integer>> coincidencias, List<Noticia> noticias) {
         return resumirNoticias(coincidencias, noticias);
     }
 
     private List<Resumen> resumirNoticias(List<List<Integer>> coincidencias, List<Noticia> noticias) {
         List<Resumen> resumenes = new ArrayList<>();
-        Gson gson = new Gson();
-        String respuesta;
-        for (List<Integer> grupo : coincidencias) {
-            StringBuilder prompt = new StringBuilder(PROMPT_RESUMENES);
-            prompt.append("Noticias:\n");
-
-            for (Integer idNoticia : grupo) {
-                if (idNoticia <= noticias.size()) {
-                    Noticia n = noticias.get(idNoticia - 1);
-                    prompt.append("Titular: ").append(n.getTitular()).append("\n");
-                    prompt.append("Cuerpo: ").append(n.getContenido()).append("\n\n");
-                }
-            }
-
-            try {
-                respuesta = llamarGemini(prompt.toString());
-                System.out.println("Respuesta resumen: " + respuesta);
-
-                JsonObject root = JsonParser.parseString(respuesta).getAsJsonObject();
-                JsonArray candidates = root.getAsJsonArray("candidates");
-
-                if (candidates != null && candidates.size() > 0) {
-                    JsonObject content = candidates.get(0).getAsJsonObject().getAsJsonObject("content");
-                    JsonArray parts = content.getAsJsonArray("parts");
-                    String texto = parts.get(0).getAsJsonObject().get("text").getAsString();
-
-                    // El texto contiene:
-                    // ```json\n{ "titular": "x", "cuerpo": "y" }\n```
-                    // Así que limpiamos las comillas y saltos de línea extra
-                    String jsonLimpio = texto.replaceAll("```json", "")
-                            .replaceAll("```", "")
-                            .trim();
-
-                    // Ahora parseamos el JSON limpio
-                    Resumen resumen = gson.fromJson(jsonLimpio, Resumen.class);
-                    resumenes.add(resumen);
-                }
-            } catch (IOException e) {
-                throw new ResumidorNoticiasException("Error al resumir una noticia");
-            }
-        }
+        obtenerResumenes(resumenes,coincidencias,noticias);
         return resumenes;
     }
 
+    private void obtenerResumenes(List<Resumen> resumenes, List<List<Integer>> coincidencias, List<Noticia> noticias) {
+        String respuesta;
+        for (List<Integer> grupo : coincidencias) {
+            StringBuilder prompt = new StringBuilder(PROMPT_RESUMENES);
+            realizarPromptResumenes(noticias, grupo, prompt);
+            try {
+                respuesta = llamarGemini(prompt.toString());
+                JsonObject root = JsonParser.parseString(respuesta).getAsJsonObject();
+                JsonArray candidates = root.getAsJsonArray("candidates");
+                resumenes.add(obtenerResumen(candidates));
+            } catch (IOException e) {
+                throw new ResumidorNoticiasException("Error al resumir una noticia:" +e.getMessage());
+            }
+        }
+    }
 
-    private static String llamarGemini(String prompt) throws IOException {
+    private void realizarPromptResumenes(List<Noticia> noticias, List<Integer> grupo, StringBuilder prompt) {
+        prompt.append("Noticias:\n");
+        for (Integer idNoticia : grupo) {
+            if (idNoticia <= noticias.size()) {
+                Noticia n = noticias.get(idNoticia - 1);
+                prompt.append("Titular: ").append(n.getTitular()).append("\n");
+                prompt.append("Cuerpo: ").append(n.getContenido()).append("\n\n");
+            }
+        }
+    }
+
+    private Resumen obtenerResumen(JsonArray candidates) {
+        Gson gson = new Gson();
+        Resumen resumen = new Resumen();
+        if (candidates != null && !candidates.isEmpty()) {
+            JsonObject content = candidates.get(0).getAsJsonObject().getAsJsonObject("content");
+            JsonArray parts = content.getAsJsonArray("parts");
+            String texto = parts.get(0).getAsJsonObject().get("text").getAsString();
+
+            // El texto contiene:
+            // ```json\n{ "titular": "x", "cuerpo": "y" }\n```
+            // Así que limpiamos las comillas y saltos de línea extra
+            String jsonLimpio = texto.replaceAll("```json", "")
+                    .replaceAll("```", "")
+                    .trim();
+
+            // Ahora parseamos el JSON limpio
+            resumen = gson.fromJson(jsonLimpio, Resumen.class);
+
+        }
+        return resumen;
+    }
+
+
+    private String llamarGemini(String prompt) throws IOException {
         InputStream is;
         BufferedReader br;
         StringBuilder response;
-        String linea;
-        URL url = new URL(API_URL + "?key=" + API_KEY);
+        URL url = new URL(API_URL + "?key=" + apiKey);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         //Le digo que le envio un JSON EN UTF-8
@@ -170,26 +186,51 @@ public class GestorNoticiasIA {
         String body = "{ \"contents\": [ { \"parts\": [ { \"text\": " + toJson(prompt) + " } ] } ] }";
 
         //Envia el body al servidor, el metodo getOutputStream te devuelve un flujo preparado para enviar info al servidor
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(body.getBytes(StandardCharsets.UTF_8));
-        }
+        mandarDatosGemini(body,conn);
 
-        //Verifica que no es un codigo de error
-        if(conn.getResponseCode() < 400){
-            is = conn.getInputStream();
-        }else {
-            is = conn.getErrorStream();
-        }
+        //Verifica que no es un codigo de error si lo es coge otro canal donde ver el error
+        is=obtenerCanalRespuestaServidor(conn);
 
         br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
-        response = new StringBuilder();
-        while ((linea = br.readLine()) != null) {
-            response.append(linea);
-        }
+        response= obtenerRespuestaGemini(br);
+
         br.close();
         conn.disconnect();
 
         return response.toString();
+    }
+
+    private static StringBuilder obtenerRespuestaGemini(BufferedReader br) throws IOException {
+        StringBuilder response= new StringBuilder();
+        String linea;
+        try{
+            while ((linea = br.readLine()) != null) {
+                response.append(linea);
+            }
+        }catch(IOException e){
+            throw new IOException("Error al leer respuesta de gemini");
+        }
+        return response;
+    }
+
+    private static InputStream obtenerCanalRespuestaServidor(HttpURLConnection conn) throws IOException {
+        try {
+            if(conn.getResponseCode() < 400){
+                return conn.getInputStream();
+            }else {
+                return conn.getErrorStream();
+            }
+        }catch (IOException e){
+           throw new IOException("Error al obtener un canal de respuesta del servidor");
+        }
+    }
+
+    private static void mandarDatosGemini(String body, HttpURLConnection conn) throws IOException {
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(body.getBytes(StandardCharsets.UTF_8));
+        }catch (IOException e) {
+            throw new IOException("Error al enviar datos a Gemini");
+        }
     }
 
 
