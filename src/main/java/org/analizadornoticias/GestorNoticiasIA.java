@@ -146,6 +146,9 @@ public class GestorNoticiasIA {
                 prompt.append("Cuerpo: ").append(n.getContenido()).append("\n\n");
             }
         }
+        prompt.append("\n No incluyas ningun resumen vacio");
+        prompt.append("\n Sin reproducir texto literal, limítate a sintetizar conceptos");
+        prompt.append("\n Si alguna parte del contenido no puede procesarse por políticas, sustitúyela por una descripción genera");
     }
 
     private Resumen obtenerResumen(JsonArray candidates) {
